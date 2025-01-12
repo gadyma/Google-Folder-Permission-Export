@@ -131,7 +131,7 @@ def export_permissions_recursive(drive_id, folder_id=None):
                 driveId=drive_id,
                 includeItemsFromAllDrives=True,
                 supportsAllDrives=True,
-                fields='nextPageToken, files(id, name, mimeType)',
+                fields='nextPageToken, files(id, name, mimeType, webViewLink)',
                 pageToken=page_token,
                 q=query
             ).execute()
@@ -141,6 +141,7 @@ def export_permissions_recursive(drive_id, folder_id=None):
                     'id': file['id'],
                     'name': file['name'],
                     'path': get_file_path(service, file['id'], drive_id),
+                    'webViewLink': file.get('webViewLink', ''),
                     'permissions': []
                 }
 
@@ -182,7 +183,7 @@ def export_permissions_recursive(drive_id, folder_id=None):
 
 def save_to_csv(data, filename):
     with open(filename, 'w', newline='', encoding='utf-8') as csvfile:
-        fieldnames = ['File ID', 'File Name', 'File Path', 'Permission ID', 'Type', 'Role', 'Email']
+        fieldnames = ['File ID', 'File Name', 'File Path', 'File Link', 'Permission ID', 'Type', 'Role', 'Email']
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writeheader()
         for file in data:
@@ -191,6 +192,7 @@ def save_to_csv(data, filename):
                     'File ID': file['id'],
                     'File Name': file['name'],
                     'File Path': file['path'],
+                    'File Link': file['webViewLink'],
                     'Permission ID': permission.get('id', ''),
                     'Type': permission.get('type', ''),
                     'Role': permission.get('role', ''),
@@ -200,22 +202,10 @@ def save_to_csv(data, filename):
 if __name__ == "__main__":
     drive_id = '0AMtS8_BftCO5Uk9PVA'  # מערך טכנולוגיה
     #folder_id = '1TOOLEZooNY-kg6VuMq0fodsPNore1fhQ'  # Optional: specify a folder ID
-    folder_id = '1US6m8NBV3zN72sXkwi17SkypxPwt9Kqd'
+    #folder_id = '1US6m8NBV3zN72sXkwi17SkypxPwt9Kqd'
     #drive_id = '0AOZRDL5IgELsUk9PVA' # GadyTest
-    #folder_id = None
+    folder_id = None
     
-"""    if folder_id is None:
-        # Export permissions for the entire drive
-        data = export_permissionsdrive(drive_id)
-        save_to_csv(data, 'shared_drive_permissions.csv')
-        print("Permissions exported successfully to shared_drive_permissions.csv")
-    else:
-        # Export permissions for a specific folder
-        folder_data = export_permissions(drive_id, folder_id)
-        save_to_csv(folder_data, 'folder_permissions.csv')
-        print("Folder permissions exported successfully to folder_permissions.csv")
-"""
-    # Export permissions for the entire drive or a specific folder and its subfolders
 data = export_permissions_recursive(drive_id, folder_id)
 save_to_csv(data, 'permissions_with_subfolders.csv')
 print("Permissions exported successfully to permissions_with_subfolders.csv")
