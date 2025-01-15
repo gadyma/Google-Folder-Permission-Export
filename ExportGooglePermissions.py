@@ -2,20 +2,29 @@
 from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
-
+import datetime
+# Add this at the beginning of the script, after the other imports
+from datetime import datetime
 import csv
-
 from google_auth_oauthlib.flow import Flow
 
-SCOPES='https://www.googleapis.com/auth/drive.readonly'  #'https://www.googleapis.com/auth/drive'
-Cred_Location = r'/Users/gadymargalit/Google Drive/My Drive/client_secret_889044164890-e7uaksnamilululifggvfv9d75hskram.apps.googleusercontent.com.json'
+
+import logging
+
+
+# Configuration
+from config import CRED_LOCATION, DRIVE_ID, FOLDER_ID,SCOPES
+
+
+print(FOLDER_ID)
+print(DRIVE_ID)
 
 def create_drive_service():
-    flow = InstalledAppFlow.from_client_secrets_file(Cred_Location, SCOPES)
+    flow = InstalledAppFlow.from_client_secrets_file(CRED_LOCATION, SCOPES)
     creds = flow.run_local_server(port=0)
     return build('drive', 'v3', credentials=creds)
 
-def get_file_path(service, file_id, drive_id):
+def get_file_path(service, file_id, DRIVE_ID):
     path = []
     while True:
         file = service.files().get(fileId=file_id, 
@@ -25,74 +34,30 @@ def get_file_path(service, file_id, drive_id):
         if 'parents' not in file:
             return '/'.join(path)
         parent = file['parents'][0]
-        if parent == drive_id:
+        if parent == DRIVE_ID:
             return '/'.join(path)
         file_id = parent
 
-def export_permissions(drive_id, folder_id=None):
-    service = create_drive_service()
-    results = []
-    page_token = None
-    if folder_id is not None:
-        query = f"'{drive_id}' in parents" if folder_id is None else f"'{folder_id}' in parents"    
-    while True:
-        response = service.files().list(
-            corpora='drive',
-            driveId=drive_id,
-            includeItemsFromAllDrives=True,
-            supportsAllDrives=True,
-            fields='nextPageToken, files(id, name)',
-            pageToken=page_token,
-            q=query
-        ).execute()     
-        for file in response.get('files', []):
-            file_info = {
-                'id': file['id'],
-                'name': file['name'],
-                'path': get_file_path(service, file['id'], drive_id),
-                'permissions': []
-            }
-            try:
-                permissions = service.permissions().list(
-                    fileId=file['id'],
-                    fields='permissions(id, type, role, emailAddress, permissionDetails)',
-                    supportsAllDrives=True
-                ).execute().get('permissions', [])
 
-                # Filter only non-inherited permissions
-                non_inherited_permissions = [
-                    p for p in permissions if not any(
-                        detail.get('inherited', False) for detail in p.get('permissionDetails', [])
-                    )
-                ]
-
-                file_info['permissions'] = non_inherited_permissions
-            except Exception as e:
-                print(f"Error fetching permissions for file {file['name']}: {str(e)}")
-            results.append(file_info)   
-        page_token = response.get('nextPageToken')
-        if not page_token:
-            break
-    return results
-
-def export_permissionsdrive(drive_id):
+def export_permissionsdrive(DRIVE_ID):
     service = create_drive_service()
     results = []
     page_token = None
     while True:
         response = service.files().list(
             corpora='drive',
-            driveId=drive_id,
+            driveId=DRIVE_ID,
             includeItemsFromAllDrives=True,
             supportsAllDrives=True,
-            fields='nextPageToken, files(id, name)',
+            fields='nextPageToken, files(id, name, mimeType, webViewLink)',
             pageToken=page_token
         ).execute()
         for file in response.get('files', []):
             file_info = {
                 'id': file['id'],
                 'name': file['name'],
-                'path': get_file_path(service, file['id'], drive_id),
+                'path': get_file_path(service, file['id'], DRIVE_ID),
+                'webViewLink': file.get('webViewLink', ''),
                 'permissions': []
             }
             try:
@@ -118,17 +83,17 @@ def export_permissionsdrive(drive_id):
             break
     return results
 
-def export_permissions_recursive(drive_id, folder_id=None):
+def export_permissions_recursive(DRIVE_ID, FOLDER_ID=None):
     service = create_drive_service()
     results = []
 
-    def process_folder(current_folder_id):
+    def process_folder(current_FOLDER_ID):
         page_token = None
         while True:
-            query = f"'{current_folder_id}' in parents"
+            query = f"'{current_FOLDER_ID}' in parents"
             response = service.files().list(
                 corpora='drive',
-                driveId=drive_id,
+                driveId=DRIVE_ID,
                 includeItemsFromAllDrives=True,
                 supportsAllDrives=True,
                 fields='nextPageToken, files(id, name, mimeType, webViewLink)',
@@ -140,7 +105,7 @@ def export_permissions_recursive(drive_id, folder_id=None):
                 file_info = {
                     'id': file['id'],
                     'name': file['name'],
-                    'path': get_file_path(service, file['id'], drive_id),
+                    'path': get_file_path(service, file['id'], DRIVE_ID),
                     'webViewLink': file.get('webViewLink', ''),
                     'permissions': []
                 }
@@ -152,6 +117,7 @@ def export_permissions_recursive(drive_id, folder_id=None):
                         supportsAllDrives=True
                     ).execute().get('permissions', [])
 
+                    # Filter only non-inherited permissions
                     non_inherited_permissions = [
                         p for p in permissions if not any(
                             detail.get('inherited', False) for detail in p.get('permissionDetails', [])
@@ -173,12 +139,10 @@ def export_permissions_recursive(drive_id, folder_id=None):
                 break
 
     # Start processing from the given folder or drive root
-    start_folder_id = folder_id if folder_id else drive_id
-    process_folder(start_folder_id)
+    start_FOLDER_ID = FOLDER_ID if FOLDER_ID else DRIVE_ID
+    process_folder(start_FOLDER_ID)
 
     return results
-
-
 
 
 def save_to_csv(data, filename):
@@ -200,12 +164,19 @@ def save_to_csv(data, filename):
                 })
 
 if __name__ == "__main__":
-    drive_id = '0AMtS8_BftCO5Uk9PVA'  # מערך טכנולוגיה
-    #folder_id = '1TOOLEZooNY-kg6VuMq0fodsPNore1fhQ'  # Optional: specify a folder ID
-    #folder_id = '1US6m8NBV3zN72sXkwi17SkypxPwt9Kqd'
-    #drive_id = '0AOZRDL5IgELsUk9PVA' # GadyTest
-    folder_id = None
-    
-data = export_permissions_recursive(drive_id, folder_id)
-save_to_csv(data, 'permissions_with_subfolders.csv')
-print("Permissions exported successfully to permissions_with_subfolders.csv")
+    start_time = datetime.now()
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+    logging.info(f"Script started")
+
+    if FOLDER_ID is None: 
+        data = export_permissionsdrive(DRIVE_ID)
+    else:
+        data = export_permissions_recursive(DRIVE_ID, FOLDER_ID)
+
+    export_fileName= f"{DRIVE_ID}-{FOLDER_ID}-permissions_with_subfolders.csv"
+
+    save_to_csv(data, export_fileName)
+    end_time = datetime.now()
+    logging.info(f"Permissions exported successfully to {export_fileName}")
+    logging.info(f"Script ended")
+    logging.info(f"Total execution time: {end_time - start_time}")
