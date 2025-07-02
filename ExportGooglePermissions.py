@@ -7,6 +7,9 @@ import datetime
 from datetime import datetime
 import csv
 from google_auth_oauthlib.flow import Flow
+import os
+import pickle
+from google.auth.transport.requests import Request
 
 
 import logging
@@ -20,8 +23,22 @@ print(FOLDER_ID)
 print(DRIVE_ID)
 
 def create_drive_service():
-    flow = InstalledAppFlow.from_client_secrets_file(CRED_LOCATION, SCOPES)
-    creds = flow.run_local_server(port=0)
+    creds = None
+    # The file token.json stores the user's access and refresh tokens, and is
+    # created automatically when the authorization flow completes for the first time.
+    if os.path.exists('token.json'):
+        with open('token.json', 'rb') as token:
+            creds = pickle.load(token)
+    # If there are no (valid) credentials available, let the user log in.
+    if not creds or not creds.valid:
+        if creds and creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+        else:
+            flow = InstalledAppFlow.from_client_secrets_file(CRED_LOCATION, SCOPES)
+            creds = flow.run_local_server(port=0)
+        # Save the credentials for the next run
+        with open('token.json', 'wb') as token:
+            pickle.dump(creds, token)
     return build('drive', 'v3', credentials=creds)
 
 def get_file_path(service, file_id, DRIVE_ID):
@@ -66,14 +83,12 @@ def export_permissionsdrive(DRIVE_ID):
                     fields='permissions(id, type, role, emailAddress, permissionDetails)',
                     supportsAllDrives=True
                 ).execute().get('permissions', [])
-
                 # Filter only non-inherited permissions
                 non_inherited_permissions = [
                     p for p in permissions if not any(
                         detail.get('inherited', False) for detail in p.get('permissionDetails', [])
                     )
                 ]
-
                 file_info['permissions'] = non_inherited_permissions
             except Exception as e:
                 print(f"Error fetching permissions for file {file['name']}: {str(e)}")
@@ -86,7 +101,6 @@ def export_permissionsdrive(DRIVE_ID):
 def export_permissions_recursive(DRIVE_ID, FOLDER_ID=None):
     service = create_drive_service()
     results = []
-
     def process_folder(current_FOLDER_ID):
         page_token = None
         while True:
@@ -100,7 +114,6 @@ def export_permissions_recursive(DRIVE_ID, FOLDER_ID=None):
                 pageToken=page_token,
                 q=query
             ).execute()
-
             for file in response.get('files', []):
                 file_info = {
                     'id': file['id'],
@@ -109,39 +122,31 @@ def export_permissions_recursive(DRIVE_ID, FOLDER_ID=None):
                     'webViewLink': file.get('webViewLink', ''),
                     'permissions': []
                 }
-
                 try:
                     permissions = service.permissions().list(
                         fileId=file['id'],
                         fields='permissions(id, type, role, emailAddress, permissionDetails)',
                         supportsAllDrives=True
                     ).execute().get('permissions', [])
-
                     # Filter only non-inherited permissions
                     non_inherited_permissions = [
                         p for p in permissions if not any(
                             detail.get('inherited', False) for detail in p.get('permissionDetails', [])
                         )
                     ]
-
                     file_info['permissions'] = non_inherited_permissions
                 except Exception as e:
                     print(f"Error fetching permissions for file {file['name']}: {str(e)}")
-
                 results.append(file_info)
-
                 # Recursively process subfolders
                 if file.get('mimeType') == 'application/vnd.google-apps.folder':
                     process_folder(file['id'])
-
             page_token = response.get('nextPageToken')
             if not page_token:
                 break
-
     # Start processing from the given folder or drive root
     start_FOLDER_ID = FOLDER_ID if FOLDER_ID else DRIVE_ID
     process_folder(start_FOLDER_ID)
-
     return results
 
 
