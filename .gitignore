@@ -1,0 +1,5 @@
+token.json
+*.csv
+__pycache__/
+.env
+client_secret_*.json
