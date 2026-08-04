@@ -1,0 +1,23 @@
+{
+  "cred_location": "~/path/to/client_secret_XXXXXX.apps.googleusercontent.com.json",
+  "default_profile": "my-drive",
+  "include_empty_permissions": false,
+  "skip_trash_folder": true,
+  "profiles": {
+    "my-drive": {
+      "drive_id": "0XXXXXXXXXXXXXXXXXX",
+      "folder_id": "1YYYYYYYYYYYYYYYYY"
+    },
+    "another-drive": {
+      "drive_id": "0XXXXXXXXXXXXXXXXXX"
+    },
+    "specific-folder": {
+      "drive_id": "0XXXXXXXXXXXXXXXXXX",
+      "folder_id": "1YYYYYYYYYYYYYYYYY",
+      "folders": {
+        "archive": "1ZZZZZZZZZZZZZZZZZ",
+        "active":  "1WWWWWWWWWWWWWWWWW"
+      }
+    }
+  }
+}
