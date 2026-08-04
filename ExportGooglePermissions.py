@@ -214,8 +214,10 @@ if __name__ == "__main__":
     cli = parser.parse_args()
 
     prof = PROFILES.get(cli.profile, {}) if PROFILES and getattr(cli, 'profile', None) else {}
-    drive_id  = cli.drive_id   or prof.get('drive_id')   or DRIVE_ID
-    folder_id = cli.folder_id  or prof.get('folder_id')  or FOLDER_ID
+    using_profile = bool(prof)
+    drive_id  = cli.drive_id  or prof.get('drive_id')  or DRIVE_ID
+    # When a profile is active, don't bleed the default FOLDER_ID into a different drive
+    folder_id = cli.folder_id or prof.get('folder_id') or (None if using_profile else FOLDER_ID)
     if cli.include_empty_permissions:
         INCLUDE_EMPTY_PERMISSIONS = True
     if cli.include_trash:
