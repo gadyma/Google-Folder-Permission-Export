@@ -1,4 +1,4 @@
-token.json
+token*.json
 *.csv
 __pycache__/
 .env

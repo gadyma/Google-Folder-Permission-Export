@@ -2,6 +2,7 @@
 from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
+import argparse
 import datetime
 from datetime import datetime
 import csv
@@ -12,23 +13,27 @@ from google.auth.transport.requests import Request
 import logging
 
 # Configuration
-from config import CRED_LOCATION, SCOPES, FOLDER_ID
+from config import CRED_LOCATION, FOLDER_ID
+
+SCOPES_READONLY = ['https://www.googleapis.com/auth/drive.readonly']
+SCOPES_WRITE    = ['https://www.googleapis.com/auth/drive']
 
 # For shared folders, you'll need to specify the folder ID directly
 SHARED_FOLDER_ID = FOLDER_ID
 
-def create_drive_service():
+def create_drive_service(scopes):
+    token_file = 'token_write.json' if scopes == SCOPES_WRITE else 'token_readonly.json'
     creds = None
-    if os.path.exists('token.json'):
-        with open('token.json', 'rb') as token:
+    if os.path.exists(token_file):
+        with open(token_file, 'rb') as token:
             creds = pickle.load(token)
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
         else:
-            flow = InstalledAppFlow.from_client_secrets_file(CRED_LOCATION, SCOPES)
+            flow = InstalledAppFlow.from_client_secrets_file(CRED_LOCATION, scopes)
             creds = flow.run_local_server(port=0)
-        with open('token.json', 'wb') as token:
+        with open(token_file, 'wb') as token:
             pickle.dump(creds, token)
     return build('drive', 'v3', credentials=creds)
 
@@ -61,9 +66,8 @@ def get_file_path_shared(service, file_id, root_folder_id):
     
     return '/'.join(path)
 
-def export_shared_folder_permissions(folder_id):
+def export_shared_folder_permissions(folder_id, service):
     """Export permissions for a shared folder and all its contents"""
-    service = create_drive_service()
     results = []
     
     def process_folder(current_folder_id, is_root=False):
@@ -158,6 +162,29 @@ def export_shared_folder_permissions(folder_id):
     process_folder(folder_id, is_root=True)
     return results
 
+def remove_permission_breaks(service, data):
+    """Delete all non-inherited (direct) permissions from child items so they revert to inheriting from parent."""
+    removed = 0
+    errors = 0
+    for file in data:
+        for permission in file.get('permissions', []):
+            pid = permission.get('id')
+            if not pid or pid == 'anyoneWithLink':
+                continue
+            try:
+                service.permissions().delete(
+                    fileId=file['id'],
+                    permissionId=pid,
+                    supportsAllDrives=True
+                ).execute()
+                print(f"  Removed permission {pid} ({permission.get('emailAddress', permission.get('type'))}) from '{file['name']}'")
+                removed += 1
+            except Exception as e:
+                print(f"  Error removing permission {pid} from '{file['name']}': {str(e)}")
+                errors += 1
+    print(f"\nDone. Removed {removed} permission(s). Errors: {errors}.")
+
+
 def save_to_csv(data, filename):
     with open(filename, 'w', newline='', encoding='utf-8') as csvfile:
         fieldnames = ['File ID', 'File Name', 'File Path', 'File Link', 'Permission ID', 'Type', 'Role', 'Email']
@@ -196,37 +223,57 @@ def get_folder_id_from_url(url):
     return None
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Export (and optionally fix) Google Drive folder permission breaks.")
+    parser.add_argument('--url', help='Google Drive folder URL (overrides config FOLDER_ID)')
+    parser.add_argument('--remove', action='store_true', help='Remove permission breaks after export')
+    parser.add_argument('--children-only', action='store_true', help='When removing, skip the root folder and only fix children')
+    parser.add_argument('--yes', action='store_true', help='Skip confirmation prompt before removing')
+    args = parser.parse_args()
+
     start_time = datetime.now()
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-    logging.info(f"Script started")
-    
-    # You can either set the folder ID directly or extract it from a URL
-    folder_url = input("Enter the Google Drive folder URL (or press Enter to use hardcoded SHARED_FOLDER_ID): ").strip()
-    
-    if folder_url:
-        folder_id = get_folder_id_from_url(folder_url)
+    logging.info("Script started")
+
+    if args.url:
+        folder_id = get_folder_id_from_url(args.url)
         if not folder_id:
             print("Invalid URL format. Please provide a valid Google Drive folder URL.")
             exit(1)
     else:
         folder_id = SHARED_FOLDER_ID
         if not folder_id or folder_id == "your_shared_folder_id_here":
-            print("Please set SHARED_FOLDER_ID or provide a folder URL.")
+            print("Please set SHARED_FOLDER_ID or pass --url.")
             exit(1)
-    
+
+    scopes = SCOPES_WRITE if args.remove else SCOPES_READONLY
+    service = create_drive_service(scopes)
+
     print(f"Processing folder ID: {folder_id}")
-    
+
     try:
-        data = export_shared_folder_permissions(folder_id)
+        data = export_shared_folder_permissions(folder_id, service)
         export_fileName = f"shared_folder_{folder_id}_permissions.csv"
         save_to_csv(data, export_fileName)
-        
+
         end_time = datetime.now()
         logging.info(f"Permissions exported successfully to {export_fileName}")
         logging.info(f"Found {len(data)} files/folders")
         logging.info(f"Script ended")
         logging.info(f"Total execution time: {end_time - start_time}")
-        
+
+        if args.remove:
+            broken = [f for f in data if f['permissions']]
+            if args.children_only:
+                broken = [f for f in broken if f['id'] != folder_id]
+            if broken:
+                print(f"\n{len(broken)} item(s) have direct (non-inherited) permissions (permission breaks).")
+                if args.yes or input("Confirm removal? (yes/no): ").strip().lower() == 'yes':
+                    remove_permission_breaks(service, broken)
+                else:
+                    print("No permissions were removed.")
+            else:
+                print("No permission breaks found — nothing to remove.")
+
     except Exception as e:
         logging.error(f"Script failed: {str(e)}")
         print(f"Error: {str(e)}")

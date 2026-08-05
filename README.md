@@ -36,7 +36,14 @@ The file lives in `~` and is never committed — keep your Drive IDs and credent
 
 ### 2. First run — OAuth consent
 
-On the first run the browser will open for Google sign-in. A `token.json` is saved locally (also gitignored) and reused on subsequent runs. Tokens older than 12 hours are refreshed automatically.
+On the first run the browser will open for Google sign-in. Two token files are saved locally (both gitignored) and reused on subsequent runs:
+
+| Token file | Used when |
+|---|---|
+| `token_readonly.json` | Export only |
+| `token_write.json` | Export + remove (`--remove` flag) |
+
+Tokens are refreshed automatically when expired.
 
 ## Usage
 
@@ -73,9 +80,38 @@ Output is a CSV named `<drive-id-prefix>-permissions_<timestamp>.csv` in the cur
 | Role | `owner`, `writer`, `commenter`, or `reader` |
 | Email | Email address (for `user`/`group` type) |
 
+## ManageSharedFolderPermissions.py
+
+Exports non-inherited (direct) permissions from a shared folder and optionally removes them so children revert to inheriting from their parent.
+
+```bash
+# Export only
+python3 ManageSharedFolderPermissions.py --url https://drive.google.com/drive/folders/FOLDER_ID
+
+# Export and remove breaks from children only (prompts to confirm)
+python3 ManageSharedFolderPermissions.py --url ... --remove --children-only
+
+# Export and remove breaks from children + parent folder
+python3 ManageSharedFolderPermissions.py --url ... --remove
+
+# Skip confirmation prompt (useful for automation)
+python3 ManageSharedFolderPermissions.py --url ... --remove --children-only --yes
+```
+
+### Flags
+
+| Flag | Description |
+|------|-------------|
+| `--url` | Google Drive folder URL (overrides `FOLDER_ID` in config) |
+| `--remove` | Remove permission breaks after export |
+| `--children-only` | When removing, skip the root folder and only fix children |
+| `--yes` | Skip confirmation prompt before removing |
+
+Output is a CSV named `shared_folder_<folder-id>_permissions.csv` in the current directory. Only non-inherited (direct) permissions are included — items that inherit cleanly from their parent are listed with empty permission fields.
+
 ## Other scripts
 
 | Script | Description |
 |--------|-------------|
-| `ExportGooglePermissions_Shared_folder.py` | Export permissions for items shared directly with your account |
+| `ManageSharedFolderPermissions.py` | Export and optionally remove permission breaks from a shared folder. Supports `--remove`, `--children-only`, and `--yes` flags. |
 | `RemoveAllOldUserShares.py` | Remove explicit share permissions from files in bulk |

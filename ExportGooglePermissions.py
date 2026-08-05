@@ -213,6 +213,10 @@ if __name__ == "__main__":
                         help='Include the Trash folder in the export (default: skip)')
     cli = parser.parse_args()
 
+    if not cli.drive_id and not getattr(cli, 'profile', None):
+        parser.print_help()
+        raise SystemExit(0)
+
     prof = PROFILES.get(cli.profile, {}) if PROFILES and getattr(cli, 'profile', None) else {}
     using_profile = bool(prof)
     drive_id  = cli.drive_id  or prof.get('drive_id')  or DRIVE_ID
@@ -233,7 +237,8 @@ if __name__ == "__main__":
     try:
         data = export_permissions_recursive(drive_id, folder_id)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        export_filename = f"{drive_id[:8]}-permissions_{timestamp}.csv"
+        label = getattr(cli, 'profile', None) or drive_id[:8]
+        export_filename = f"{label}-permissions_{timestamp}.csv"
         save_to_csv(data, export_filename)
         end_time = datetime.now()
         logging.info(f"Permissions exported successfully to {export_filename}")
